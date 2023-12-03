@@ -1,0 +1,96 @@
+agents:
+  queue: <%- prodBuildkiteQueueName %>
+
+configs:
+  plugins:
+    - &aws-sm
+      seek-oss/aws-sm#v2.3.1:
+        env:
+          NPM_READ_TOKEN: arn:aws:secretsmanager:ap-southeast-2:987872074697:secret:npm/npm-read-token
+
+    - &docker-ecr-cache
+      seek-oss/docker-ecr-cache#v2.1.0: &docker-ecr-cache-defaults
+        cache-on:
+          - package.json
+          - yarn.lock
+        secrets: id=npm,src=tmp/.npmrc
+
+    - &private-npm
+      seek-oss/private-npm#v1.2.0:
+        env: NPM_READ_TOKEN
+        output-path: tmp/
+
+  base-steps:
+    - &deploy
+      commands:
+        - echo '+++ yarn deploy'
+        - yarn deploy
+      concurrency: 1
+      plugins:
+        - artifacts#v1.9.2:
+            build: ${BUILDKITE_BUILD_ID}
+            download: lib/*
+        - *aws-sm
+        - *private-npm
+        - *docker-ecr-cache
+        - docker-compose#v4.16.0:
+            dependencies: false
+            run: app
+      retry:
+        manual:
+          # Only use this if you need to roll back a deployment ASAP.
+          # Always follow up with a proper revert or fix in Git history.
+          permit_on_passed: true
+
+steps:
+  - label: 🧪 Test, Lint & Build
+    artifact_paths: lib/**/*
+    commands:
+      - echo '+++ yarn test:ci'
+      - yarn test
+      - echo '--- yarn lint'
+      - yarn lint
+      - echo '--- yarn build'
+      - yarn build
+    env:
+      GET_GITHUB_TOKEN: please
+    plugins:
+      - *aws-sm
+      - *private-npm
+      - *docker-ecr-cache
+      - docker-compose#v4.16.0:
+          run: app
+    timeout_in_minutes: 10
+
+  - agents:
+      queue: <%- devBuildkiteQueueName %>
+    branches: '!renovate-*'
+    label: 🧖‍♀️ Warm Dev
+    command: ':'
+    plugins:
+      - *aws-sm
+      - *private-npm
+      - seek-oss/docker-ecr-cache#v2.1.0:
+          <<: *docker-ecr-cache-defaults
+          skip-pull-from-cache: true
+
+  - wait
+  - block: 🙋🏻‍♀️ Deploy Dev
+    branches: '!${BUILDKITE_PIPELINE_DEFAULT_BRANCH}'
+
+  - <<: *deploy
+    agents:
+      queue: <%- devBuildkiteQueueName %>
+    env:
+      ENVIRONMENT: dev
+    label: 🤞 Deploy Dev
+    concurrency_group: 'cdk-test/deploy/dev'
+    key: deploy-dev
+
+  - <<: *deploy
+    env:
+      ENVIRONMENT: prod
+    label: 🚀 Deploy Prod
+    branches: ${BUILDKITE_PIPELINE_DEFAULT_BRANCH}
+    concurrency_group: 'cdk-test/deploy/prod'
+    depends_on: deploy-dev
