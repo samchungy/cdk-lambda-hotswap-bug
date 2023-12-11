@@ -17,6 +17,20 @@ const contexts = [
   },
 ];
 
+const currentDate = '2023-12-05T05:00:21.059Z';
+
+jest.useFakeTimers({
+  legacyFakeTimers: false,
+  doNotFake: [
+    'nextTick',
+    'setInterval',
+    'clearInterval',
+    'setTimeout',
+    'clearTimeout',
+  ],
+  now: new Date(currentDate),
+});
+
 it.each(contexts)(
   'returns expected CloudFormation stack for $stage',
   (context) => {
