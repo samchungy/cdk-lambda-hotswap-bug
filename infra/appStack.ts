@@ -88,7 +88,7 @@ export class AppStack extends Stack {
         ...context.workerLambda.environment,
       },
       // https://github.com/aws/aws-cdk/issues/28237
-      description: `Lambda description - updated at ${new Date().toISOString()}`,
+      // description: `Lambda description - updated at ${new Date().toISOString()}`,
     });
 
     const alias = new aws_lambda.Alias(this, 'worker-live-alias', {
